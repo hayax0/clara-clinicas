@@ -1,0 +1,40 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "WEB_ORIGIN",
+    "API_PORT",
+    "SESSION_COOKIE_SECURE",
+    "GEMINI_API_KEY",
+    "GEMINI_MODEL_STANDARD",
+    "GEMINI_MODEL_ADVANCED",
+    "GEMINI_DAILY_CALL_LIMIT",
+    "GEMINI_DAILY_TOKEN_LIMIT",
+    "CLARA_LOCAL_DEMO"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "dist/**"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {},
+    "typecheck": {
+      "dependsOn": [
+        "^build"
+      ]
+    }
+  },
+  "globalEnv": [
+    "API_ORIGIN"
+  ]
+}

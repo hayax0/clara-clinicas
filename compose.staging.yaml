@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Configure POSTGRES_DB in .env.staging}
+      POSTGRES_USER: ${POSTGRES_USER:?Configure POSTGRES_USER in .env.staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure POSTGRES_PASSWORD in .env.staging}
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [private]
+
+  migrate:
+    image: ghcr.io/hayax0/clara-clinicas-api:staging
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-runtime
+      args:
+        API_ORIGIN: http://api:4311
+    profiles: [operations]
+    command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
+    working_dir: /app
+    environment: &api_environment
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      API_PORT: "4311"
+      DATABASE_URL: ${DATABASE_URL:?Configure DATABASE_URL in .env.staging}
+      WEB_ORIGIN: https://${PUBLIC_DOMAIN:?Configure PUBLIC_DOMAIN in .env.staging}
+      SESSION_COOKIE_SECURE: "true"
+      CLARA_LOCAL_DEMO: "false"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL_STANDARD: ${GEMINI_MODEL_STANDARD:-gemini-3.5-flash-lite}
+      GEMINI_MODEL_ADVANCED: ${GEMINI_MODEL_ADVANCED:-gemini-3.8-flash}
+      GEMINI_DAILY_CALL_LIMIT: ${GEMINI_DAILY_CALL_LIMIT:-60}
+      GEMINI_DAILY_TOKEN_LIMIT: ${GEMINI_DAILY_TOKEN_LIMIT:-60000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [private]
+
+  api:
+    image: ghcr.io/hayax0/clara-clinicas-api:staging
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-runtime
+      args:
+        API_ORIGIN: http://api:4311
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "dist/main.js"]
+    environment: *api_environment
+    expose: ["4311"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4311/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [private]
+
+  web:
+    image: ghcr.io/hayax0/clara-clinicas-web:staging
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web-runtime
+      args:
+        API_ORIGIN: http://api:4311
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "4310"
+    expose: ["4310"]
+    ports:
+      - "127.0.0.1:${CLARA_WEB_BIND_PORT:-14310}:4310"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4310/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [private]
+
+networks:
+  private:
+    driver: bridge
+
+volumes:
+  staging_postgres_data:
+    name: clara_staging_postgres_data

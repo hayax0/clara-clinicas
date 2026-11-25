@@ -1,0 +1,3 @@
+ALTER TABLE "Organization" ADD COLUMN "capturePage" JSONB;
+ALTER TABLE "Contact" ADD COLUMN "marketingConsentAt" TIMESTAMPTZ, ADD COLUMN "marketingRevokedAt" TIMESTAMPTZ,
+  ADD COLUMN "leadStatus" TEXT NOT NULL DEFAULT 'NEW', ADD COLUMN "followUpAt" TIMESTAMPTZ;

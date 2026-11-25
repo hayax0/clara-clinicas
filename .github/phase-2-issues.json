@@ -1,0 +1,18 @@
+[
+  {
+    "title": "Fase 2 · Integrar o adaptador oficial do Gemini",
+    "body": "## Entrega\nAdaptador backend com `@google/genai`, modelos estáveis configuráveis e estado indisponível sem `GEMINI_API_KEY`.\n\n## Aceite\n- [ ] A chave fica no backend e o SaaS funciona sem ela.\n- [ ] Prazo por chamada, retentativas transitórias limitadas e erros permanentes cobertos por testes.\n- [ ] Um teste real com dados sintéticos confirma o modelo escolhido e registra a evidência.\n\nReferência local: `docs/AI_ARCHITECTURE.md` e `packages/ai-core/src/index.ts`."
+  },
+  {
+    "title": "Fase 2 · Aplicar cotas e medir consumo por clínica",
+    "body": "## Entrega\nLimitar chamadas e tokens por clínica e registrar latência, consumo e custo estimado por clínica e agente.\n\n## Aceite\n- [ ] Chamadas concorrentes respeitam a cota, com reserva e reconciliação do consumo.\n- [ ] Métricas ausentes são identificáveis e os registros excluem conteúdo sensível.\n- [ ] Testes cobrem limite, concorrência e falhas.\n\nDependência: adaptador oficial do Gemini. Referência local: `docs/AI_ARCHITECTURE.md`."
+  },
+  {
+    "title": "Fase 2 · Autorizar contexto e ferramentas de leitura do agente",
+    "body": "## Entrega\nResolver o contexto administrativo por sessão e clínica. Validar as propostas do Gemini antes de executar ferramentas de leitura para agenda, serviços, tarefas, oportunidades e métricas.\n\n## Aceite\n- [ ] O servidor aplica isolamento e permissões a cada ação.\n- [ ] Propostas com ferramenta desconhecida ou argumentos inválidos são bloqueadas e auditadas.\n- [ ] Testes cobrem referência entre clínicas e bloqueio de dados vedados no payload.\n\nReferências locais: `docs/AI_ARCHITECTURE.md` e `docs/TENANT_ISOLATION.md`."
+  },
+  {
+    "title": "Fase 2 · Habilitar o Agente Principal em Meu Assistente",
+    "body": "## Entrega\nConectar a interface ao fluxo autorizado do Agente Principal e exibir o histórico de execuções da clínica.\n\n## Aceite\n- [ ] O assistente responde em um fluxo completo de leitura validado com dados sintéticos.\n- [ ] A interface indica falta de chave, indisponibilidade e limites sem interromper os módulos operacionais.\n- [ ] A execução registra ações e respeita a política de aprovação aplicável.\n\nDependências: adaptador Gemini, cotas e ferramentas autorizadas. Referência local: `docs/AI_ARCHITECTURE.md`."
+  }
+]
