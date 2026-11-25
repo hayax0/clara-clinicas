@@ -1,68 +1,73 @@
 # Staging da Clara na VPS que já roda o bot
 
-Este guia prepara um ambiente de teste isolado na VPS existente. O `bot-disparo` continua dono das portas públicas 80/443 por meio do Nginx que já usa. A Clara publica somente o frontend em uma porta local do servidor (`127.0.0.1:14310` por padrão); API e PostgreSQL permanecem acessíveis apenas na rede privada dos containers. O banco usa volume próprio e começa vazio. Use somente dados fictícios.
+Este ambiente de staging compartilha a VPS do bot-disparo e usa um banco PostgreSQL vazio, isolado por rede e volume Docker. A Clara não ocupa as portas públicas 80/443: a web está vinculada somente a 127.0.0.1:14310, para ser publicada pelo Nginx existente. Use somente dados sintéticos.
 
-## O que foi preparado
+## Estado atual — 25/11/2026
 
-- `Dockerfile`: imagens de API e web separadas; o runtime inclui apenas dependências de produção. O Next.js usa o modo standalone.
-- `.github/workflows/build-staging-images.yml`: publica imagens `linux/amd64` privadas no GitHub Container Registry, evitando compilar no disco limitado da VPS.
-- `compose.staging.yaml`: PostgreSQL persistente e privado, API privada, web ligada a uma porta local e migrações executadas separadamente.
-- `infra/nginx-clara.example.conf`: exemplo de site Nginx para encaminhar um subdomínio à porta local da Clara. É um modelo e não altera a configuração atual.
-- `.env.staging.example`: valores de exemplo; o `.env.staging` real fica fora do Git.
+- O repositório público hayax0/clara-clinicas está em main no commit 3d5559a. O arquivo .env e a chave do Gemini não foram enviados ao Git.
+- GitHub Actions concluiu os jobs AMD64 da web e da API e publicou as imagens de staging no GHCR. A VPS baixou as duas imagens sem autenticação.
+- O checkout está em /opt/clara-staging. O arquivo .env.staging está com modo 600 e contém uma senha de banco aleatória e a chave Gemini local; nunca exiba nem copie seus valores para issues, logs ou commits.
+- O PostgreSQL usa o volume clara_staging_postgres_data. As 17 migrações do Prisma foram aplicadas ao banco novo.
+- API, PostgreSQL e web estão saudáveis. A web responde HTTP 200 em http://127.0.0.1:14310/; a API responde HTTP 200 em /api/health dentro do container.
+- O bot-disparo continua ativo. O Nginx existente e os sites abordai.cmpx.tec.br e botdisparo.cmpx.tec.br não foram alterados.
+- O primeiro Super Admin ainda não foi criado. O painel não está publicado na internet; não há vhost Clara nem certificado HTTPS.
+- Depois do pull das imagens e da criação do banco, havia 5,9 GB livres e cerca de 2,2 GB de memória disponível. Reavalie o espaço antes de atualizações e backups.
 
-O fluxo pressupõe que o Nginx do bot roda no próprio host. Se ele estiver dentro de um container, a ligação precisa usar a rede daquele container e este modelo de proxy deve ser ajustado antes de habilitar o site.
+## DNS e HTTPS pendentes
 
-## Antes de publicar
+O hostname escolhido é app.clara.com. No momento da verificação, ele não tinha registros A ou CNAME. A zona clara.com está delegada aos nameservers jacqueline.ns.cloudflare.com e garrett.ns.cloudflare.com, portanto o DNS atual é administrado no Cloudflare, não no Vercel. O Vercel CLI não está instalado nem autenticado neste Mac.
 
-O checkout local ainda precisa de um commit inicial e de conexão com o repositório privado `hayax0/clara-clinicas`. O workflow só publica as imagens depois que o código chegar à branch `main`. Nenhuma imagem foi enviada ao GitHub e nenhuma alteração foi feita na VPS.
+No painel que administra a zona DNS atual, crie este registro para o subdomínio:
 
-Depois do primeiro push, confirme que o workflow **Build staging images** terminou e que os pacotes `clara-clinicas-api` e `clara-clinicas-web` aparecem como privados no GitHub. A VPS precisa de um token do GitHub com `read:packages` para baixar esses pacotes; crie-o no GitHub e digite-o no prompt de senha do Docker, sem colocar o token em arquivos ou nesta conversa:
+    Tipo: A
+    Nome: app
+    Endereço IPv4: 79.182.128.34
+    Proxy: DNS only / sem proxy inicialmente
+    TTL: Auto
 
-```sh
-docker login ghcr.io -u SEU_USUARIO_GITHUB
-```
+Não altere os registros da raiz clara.com nem os registros de e-mail. Aguarde a propagação do DNS. Com DNS only, este comando deve retornar 79.182.128.34:
 
-## Configurar a VPS
+    dig +short app.clara.com
 
-1. Escolha um subdomínio de staging e aponte o DNS para o IP da VPS. Confirme com o responsável pela hospedagem que o Nginx ativo é do host e que `127.0.0.1:14310` está livre.
-2. Copie o código para a VPS sem `.env`, dumps, backups ou banco local. No diretório do projeto, crie o ambiente:
+Se o registro estiver com proxy Cloudflare ativado, o comando pode retornar IPs da Cloudflare; isso também é esperado. Para a configuração inicial, mantenha DNS only até o certificado HTTPS do origin ser emitido e validado. Depois, se ativar o proxy Cloudflare, configure o modo SSL/TLS como Full (strict). Prossiga com o Nginx e certbot quando o registro já estiver resolvendo para o VPS:
 
-   ```sh
-   cp .env.staging.example .env.staging
-   chmod 600 .env.staging
-   openssl rand -hex 32
-   ```
+1. Use infra/nginx-clara.example.conf como base e crie um arquivo separado em /etc/nginx/sites-available/clara-staging para app.clara.com.
+2. Ative somente esse novo arquivo em sites-enabled. Não edite nem substitua a configuração default do bot.
+3. Rode nginx -t. Se passar, solicite o certificado com certbot --nginx -d app.clara.com e rode nginx -t novamente antes de systemctl reload nginx.
+4. Teste https://app.clara.com/ e https://app.clara.com/api/health.
 
-3. Edite `.env.staging`: defina `PUBLIC_DOMAIN`, `CLARA_WEB_BIND_PORT`, `POSTGRES_PASSWORD` e o mesmo valor da senha na `DATABASE_URL`. Mantenha `GEMINI_API_KEY` vazia enquanto a IA não for necessária; para qualquer teste do Gemini, use dados sintéticos.
-4. Baixe as imagens já compiladas para a arquitetura Xeon e suba somente o banco vazio:
+O Nginx do host deve continuar sendo o único serviço nas portas 80/443. O proxy deve encaminhar a web para 127.0.0.1:14310. A API e o PostgreSQL devem permanecer na rede privada do Compose.
 
-   ```sh
-   docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml pull api web migrate
-   docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml up -d postgres
-   docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml run --rm migrate
-   docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml up -d api web
-   ```
+## Operação do staging
 
-5. Copie `infra/nginx-clara.example.conf` para um arquivo novo de site do Nginx, troque `staging.example.com` pelo domínio e ajuste a porta se alterou `CLARA_WEB_BIND_PORT`. Teste com `sudo nginx -t` antes de recarregar. Não sobrescreva o site do bot. Depois, configure o certificado HTTPS pelo procedimento já usado nessa VPS.
-6. Confira `docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml ps` e abra `https://SEU_SUBDOMINIO/api/health`.
-7. Crie o primeiro Super Admin. O terminal pede nome, e-mail e senha; a senha não aparece enquanto é digitada:
+A configuração e os containers já estão em execução. Para conferir:
 
-   ```sh
-   docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml exec api node dist/create-admin.js
-   ```
+    cd /opt/clara-staging
+    docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml ps
 
-## Backups e espaço em disco
+Antes de futuras migrações, faça backup. Para atualizar as imagens já publicadas:
 
-O banco da Clara está no volume `clara_staging_postgres_data`, separado dos dados do bot. Faça um backup antes de migrações ou atualizações, e nunca use `docker compose down -v`.
+    docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml pull api web migrate
+    docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml run --rm migrate
+    docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml up -d --wait api web
 
-```sh
-umask 077
-mkdir -p "$HOME/clara-staging-backups"
-docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$HOME/clara-staging-backups/staging.dump"
-```
+O volume clara_staging_postgres_data é separado dos dados do bot. Nunca execute docker compose down -v neste projeto. O banco está vazio além do schema e não contém dados da clínica local.
 
-As imagens são montadas no GitHub Actions para `linux/amd64` e a VPS apenas as baixa; isso evita o pico de uso de disco e memória de uma compilação no servidor. Ainda assim, monitore o espaço e deixe margem para o banco, atualizações e backups.
+Depois de HTTPS estar funcionando, crie o primeiro Super Admin pelo comando interativo abaixo. Ele pede nome, e-mail e senha; a senha não aparece durante a digitação:
 
-## Limites desta preparação
+    cd /opt/clara-staging
+    docker compose --env-file .env.staging -p clara-staging -f compose.staging.yaml exec api node dist/create-admin.js
 
-O projeto ainda não foi commitado/enviado ao GitHub e a VPS não foi alterada. Ainda faltam validar o domínio, o processo real do Nginx, login e provisionamento no staging, backups externos com restauração testada, MFA e revisão de segurança/privacidade. Não usar pacientes reais nem considerar o sistema pronto para produção clínica.
+Confirme o acesso ao painel e o provisionamento com dados sintéticos. Não reutilize a senha que foi compartilhada na conversa para o ambiente local.
+
+## Imagens e Gemini
+
+O workflow .github/workflows/build-staging-images.yml compila e publica imagens linux/amd64. A VPS baixa as imagens; não compile no disco limitado do servidor. Os modelos configurados no staging são gemini-3.5-flash-lite para tarefas econômicas e gemini-3.8-flash para tarefas mais complexas, ambos listados na documentação atual da Gemini API: https://ai.google.dev/gemini-api/docs/models.
+
+A chave Gemini foi copiada do .env local diretamente para /opt/clara-staging/.env.staging via SSH e tem permissões restritas. Não rode smoke tests do Gemini sem dados sintéticos e sem necessidade; chamadas podem consumir quota/custo.
+
+## Backups e limites
+
+O banco de staging está no volume clara_staging_postgres_data. Faça backup externo antes de migrações ou atualizações e teste restauração em uma instância isolada. Um backup no mesmo disco da VPS não protege contra falha do servidor. Monitore o espaço e mantenha margem para atualização das imagens.
+
+Este é um staging inicial: DNS, HTTPS, Super Admin, backup externo com restauração comprovada, MFA e revisão de segurança/privacidade ainda estão pendentes. Não use pacientes reais nem trate o sistema como pronto para implantação clínica em produção.
